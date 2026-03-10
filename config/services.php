@@ -13,7 +13,12 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
-
+    'line' => [
+        'liff_checkin_id'  => env('LINE_LIFF_CHECKIN_ID'),
+        'liff_profile_id'  => env('LINE_LIFF_PROFILE_ID'),
+        'liff_register_id' => env('LINE_LIFF_REGISTER_ID'),
+    ],
+    
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
@@ -34,5 +39,4 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-
 ];
