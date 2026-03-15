@@ -2,7 +2,6 @@
 
 @section('content')
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
 
 <div class="min-h-screen bg-gray-50 pb-10">
 
@@ -71,9 +70,6 @@
 </div>
 
 <script>
-const CSRF    = document.querySelector('meta[name="csrf-token"]').content;
-const LIFF_ID = "{{ config('services.line.liff_profile_id') }}";
-
 function showError(title, msg) {
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('error-title').textContent = title;
@@ -82,55 +78,19 @@ function showError(title, msg) {
 }
 
 async function init() {
-    // 1. เช็ค PHP session ก่อน (เร็วที่สุด)
+    // ใช้ localStorage (ไม่พึ่ง LIFF)
+    const cachedId = localStorage.getItem('driver_line_id');
+    if (!cachedId) {
+        showError('ไม่พบข้อมูล', 'กรุณาลงทะเบียนก่อนใช้งาน');
+        return;
+    }
+
     try {
-        const r = await fetch('/driver/profile-session');
-        const d = await r.json();
-        if (d.success) { renderProfile(d); return; }
-    } catch(e) {}
-
-    // 2. ลอง LIFF
-    document.getElementById('loading-msg').textContent = 'กำลังตรวจสอบ LINE...';
-    try {
-        // liff.init: auto-retry ถ้ามี stale token
-        try {
-            await liff.init({ liffId: LIFF_ID });
-            sessionStorage.removeItem('liff_retry');
-        } catch(initErr) {
-            if (!sessionStorage.getItem('liff_retry')) {
-                sessionStorage.setItem('liff_retry', '1');
-                // ล้าง LIFF token ใน localStorage โดยตรง
-                try {
-                    Object.keys(localStorage)
-                        .filter(k => k.startsWith('LIFF_STORE'))
-                        .forEach(k => localStorage.removeItem(k));
-                } catch(_) {}
-                location.reload();
-                return;
-            }
-            sessionStorage.removeItem('liff_retry');
-            throw initErr; // ส่งต่อให้ catch ด้านนอก
-        }
-
-        if (!liff.isLoggedIn()) {
-            liff.login({ redirectUri: window.location.href });
-            return;
-        }
-
-        const profile = await liff.getProfile();
-
-        if (profile.pictureUrl) {
-            const av = document.getElementById('line-avatar');
-            av.src = profile.pictureUrl;
-            av.classList.remove('hidden');
-            document.getElementById('line-avatar-placeholder').classList.add('hidden');
-        }
-
         document.getElementById('loading-msg').textContent = 'กำลังโหลดประวัติ...';
         const res  = await fetch('/driver/line-login', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF },
-            body: JSON.stringify({ line_user_id: profile.userId })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ line_user_id: cachedId })
         });
         const data = await res.json();
 
@@ -138,11 +98,9 @@ async function init() {
             showError('ไม่พบข้อมูล', data.message ?? 'กรุณาลงทะเบียนก่อน');
             return;
         }
-
         renderProfile(data);
-
     } catch(e) {
-        showError('เกิดข้อผิดพลาด', e.message || 'ไม่สามารถเชื่อมต่อได้');
+        showError('เชื่อมต่อไม่ได้', 'กรุณาลองใหม่อีกครั้ง');
     }
 }
 

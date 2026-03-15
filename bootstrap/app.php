@@ -13,6 +13,13 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');
+
+        // ยกเว้น CSRF สำหรับ driver routes
+        // (LINE cache HTML เก่า ทำให้ CSRF token หมดอายุ — auth ใช้ LINE ID แทน)
+        $middleware->validateCsrfTokens(except: [
+            'driver/*',
+            'register-driver',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>บันทึกเที่ยววิ่ง</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Sarabun', sans-serif; }
@@ -22,9 +21,23 @@
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2316a34a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
             background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
         }
+        #qr-reader video { width: 100% !important; }
+        #qr-reader { width: 100% !important; }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+
+{{-- QR Scanner Modal --}}
+<div id="qr-modal" class="hidden fixed inset-0 bg-black z-50 flex flex-col">
+    <div class="flex justify-between items-center px-4 py-3 bg-black/80">
+        <p class="text-white font-bold text-lg">สแกน QR Code</p>
+        <button onclick="closeScanner()" class="text-white text-3xl leading-none">✕</button>
+    </div>
+    <div class="flex-1 flex items-center justify-center p-4">
+        <div id="qr-reader" class="w-full max-w-sm rounded-xl overflow-hidden"></div>
+    </div>
+    <p class="text-gray-400 text-sm text-center pb-6">จ่อ QR Code ให้อยู่ในกรอบ</p>
+</div>
 
 {{-- Loading --}}
 <div id="loading" class="flex flex-col items-center justify-center min-h-screen gap-3">
@@ -32,10 +45,10 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
     </svg>
-    <p class="text-gray-500 text-sm" id="loading-msg">กำลังตรวจสอบ LINE...</p>
+    <p class="text-gray-500 text-sm" id="loading-msg">กำลังตรวจสอบ...</p>
 </div>
 
-{{-- Error / Not registered --}}
+{{-- Error --}}
 <div id="screen-error" class="hidden flex flex-col items-center justify-center min-h-screen px-6 text-center">
     <div class="text-5xl mb-4">⚠️</div>
     <p class="font-bold text-gray-800 text-lg mb-2" id="error-title">เกิดข้อผิดพลาด</p>
@@ -49,7 +62,6 @@
 {{-- Main Form --}}
 <div id="main-form" class="hidden max-w-sm mx-auto px-4 py-8">
 
-    {{-- Header --}}
     <div class="text-center mb-6">
         <div class="inline-flex items-center justify-center w-14 h-14 rounded-full mb-3" style="background:#16a34a;">
             <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -63,7 +75,6 @@
 
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
 
-        {{-- เลือกสายรถ --}}
         <div>
             <p class="text-sm font-bold text-gray-700 mb-2">สายรถวันนี้ <span class="text-red-500">*</span></p>
             <select id="route-select" onchange="filterBusesByRoute(this.value)"
@@ -73,7 +84,6 @@
             </select>
         </div>
 
-        {{-- เลือกทะเบียนรถ --}}
         <div>
             <p class="text-sm font-bold text-gray-700 mb-2">ทะเบียนรถ <span class="text-red-500">*</span></p>
             <select id="bus-select"
@@ -83,7 +93,6 @@
             </select>
         </div>
 
-        {{-- ประเภทรถ --}}
         <div>
             <p class="text-sm font-bold text-gray-700 mb-3">ประเภทรถวันนี้</p>
             <div class="grid grid-cols-2 gap-3">
@@ -104,7 +113,6 @@
             </div>
         </div>
 
-        {{-- จำนวนพนักงาน --}}
         <div>
             <p class="text-sm font-bold text-gray-700 mb-3">จำนวนพนักงาน (คน)</p>
             <div class="flex items-center justify-center gap-3">
@@ -121,7 +129,6 @@
             </div>
         </div>
 
-        {{-- ปุ่มสแกน --}}
         <button id="scan-btn" onclick="startScan()"
             style="background-color:#16a34a; color:#ffffff;"
             class="w-full py-4 rounded-xl text-lg font-extrabold shadow-md
@@ -136,7 +143,6 @@
 
     </div>
 
-    {{-- Status --}}
     <div id="status-box" class="hidden mt-4 rounded-2xl p-5 text-center">
         <p id="status-icon" class="text-4xl mb-2"></p>
         <p id="status-msg" class="font-bold text-lg"></p>
@@ -152,11 +158,9 @@
 </div>
 
 <script>
-const CSRF    = document.querySelector('meta[name="csrf-token"]').content;
-const LIFF_ID = "{{ config('services.line.liff_checkin_id') }}";
-
 let lineUserId = null;
-let allBuses   = [];  // รถทั้งหมดของ driver คนนี้
+let allBuses   = [];
+let html5QrCode = null;
 
 function show(id) {
     ['loading','screen-error','main-form']
@@ -167,160 +171,102 @@ function show(id) {
 function showError(title, msg, showRegisterBtn = true) {
     document.getElementById('error-title').textContent = title;
     document.getElementById('error-msg').textContent   = msg;
-    const regBtn = document.querySelector('#screen-error a');
-    regBtn.style.display = showRegisterBtn ? '' : 'none';
+    document.querySelector('#screen-error a').style.display = showRegisterBtn ? '' : 'none';
     show('screen-error');
 }
 
-// ── โหลดรถของ driver (ใช้ได้ทั้งจาก session และ LIFF) ───────────────────────
+// ── โหลดรถ ──────────────────────────────────────────────────────────────────
 async function loadBuses(driverId, driverName) {
     document.getElementById('driver-greeting').textContent = 'สวัสดี ' + driverName;
     document.getElementById('loading-msg').textContent = 'กำลังโหลดข้อมูลรถ...';
-    let busData;
     try {
-        const busRes = await fetch('/driver/my-buses', {
+        const res  = await fetch('/driver/my-buses', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ line_user_id: driverId })
         });
-        busData = await busRes.json();
+        const data = await res.json();
+        if (!data.success) { showError('ไม่พบข้อมูลรถ', data.message, false); return; }
+        allBuses = data.buses;
+        buildRouteDropdown();
+        show('main-form');
     } catch(e) {
-        showError('[my-buses] ' + (e.message || JSON.stringify(e)), '', false);
-        return;
+        showError('เชื่อมต่อไม่ได้', e.message, false);
     }
-    if (!busData.success) {
-        showError('ไม่พบข้อมูลรถ', busData.message, false);
-        return;
-    }
-    allBuses = busData.buses;
-    buildRouteDropdown();
-    show('main-form');
 }
 
-// ── LIFF Init ────────────────────────────────────────────────────────────────
+// ── Auth: localStorage เท่านั้น (ไม่ใช้ LIFF) ───────────────────────────────
 async function init() {
-    // Step 0: เช็ค PHP session ก่อน (ข้าม LIFF ได้เลย)
-    try {
-        const r = await fetch('/driver/session-check');
-        const d = await r.json();
-        if (d.success && d.is_approved) {
-            lineUserId = d.line_user_id;
-            await loadBuses(lineUserId, d.display_name || d.driver_name);
-            return;
-        }
-    } catch(_) {}
+    const cachedId   = localStorage.getItem('driver_line_id');
+    const cachedName = localStorage.getItem('driver_display_name');
 
-    // Step 1: liff.init (auto-retry ถ้ามี stale token)
-    document.getElementById('loading-msg').textContent = 'กำลังเชื่อมต่อ LINE...';
-    try {
-        await liff.init({ liffId: LIFF_ID });
-        sessionStorage.removeItem('liff_retry');
-    } catch(e) {
-        if (!sessionStorage.getItem('liff_retry')) {
-            sessionStorage.setItem('liff_retry', '1');
-            // ล้าง LIFF token ใน localStorage โดยตรง (liff.logout() ใช้ไม่ได้ตอน init ยังไม่ผ่าน)
-            try {
-                Object.keys(localStorage)
-                    .filter(k => k.startsWith('LIFF_STORE'))
-                    .forEach(k => localStorage.removeItem(k));
-            } catch(_) {}
-            location.reload();
-            return;
-        }
-        sessionStorage.removeItem('liff_retry');
-        showError('[liff.init] ' + (e.message || JSON.stringify(e)), '', false);
+    if (!cachedId) {
+        showError('กรุณาลงทะเบียนก่อน', 'กรุณากดเมนู "ลงทะเบียน" ก่อนใช้งาน');
         return;
     }
 
-    // Step 2: login / getProfile
-    document.getElementById('loading-msg').textContent = 'กำลังดึงข้อมูลโปรไฟล์...';
-    if (!liff.isLoggedIn()) {
-        liff.login({ redirectUri: window.location.href });
-        return;
-    }
-
-    let profile;
-    try {
-        profile = await liff.getProfile();
-    } catch(e) {
-        showError('[liff.getProfile] ' + (e.message || JSON.stringify(e)), '', false);
-        return;
-    }
-    lineUserId = profile.userId;
-
-    // Step 3: check-status
     document.getElementById('loading-msg').textContent = 'กำลังตรวจสอบสถานะ...';
-    let statusData;
     try {
-        const statusRes = await fetch('/driver/check-status', {
+        const res  = await fetch('/driver/check-status', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF },
-            body: JSON.stringify({ line_user_id: lineUserId })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ line_user_id: cachedId })
         });
-        statusData = await statusRes.json();
+        const data = await res.json();
+
+        if (data.status === 'new') {
+            localStorage.removeItem('driver_line_id');
+            localStorage.removeItem('driver_display_name');
+            showError('ไม่พบข้อมูล', 'กรุณาลงทะเบียนก่อนใช้งาน');
+            return;
+        }
+        if (data.status === 'pending') {
+            showError('รอการอนุมัติ', 'Admin กำลังตรวจสอบข้อมูลของคุณ กรุณารอสักครู่', false);
+            return;
+        }
+
+        lineUserId = cachedId;
+        await loadBuses(lineUserId, cachedName || data.driver_name);
+
     } catch(e) {
-        showError('[check-status] ' + (e.message || JSON.stringify(e)), '', false);
-        return;
+        showError('เชื่อมต่อไม่ได้', 'กรุณาลองใหม่อีกครั้ง', false);
     }
-
-    if (statusData.status === 'new') {
-        showError('ยังไม่ได้ลงทะเบียน', 'กรุณาลงทะเบียนก่อนใช้งาน');
-        return;
-    }
-    if (statusData.status === 'pending') {
-        showError('รอการอนุมัติ', 'Admin กำลังตรวจสอบข้อมูลของคุณ กรุณารอสักครู่', false);
-        return;
-    }
-
-    // Step 4: my-buses
-    await loadBuses(lineUserId, profile.displayName);
 }
 
-// ── Build route dropdown จากรถของ driver ────────────────────────────────────
+// ── Dropdown ─────────────────────────────────────────────────────────────────
 function buildRouteDropdown() {
     const routeSet = new Map();
-    allBuses.forEach(b => {
-        if (!routeSet.has(b.route_id)) {
-            routeSet.set(b.route_id, b.Route_Name);
-        }
-    });
+    allBuses.forEach(b => { if (!routeSet.has(b.route_id)) routeSet.set(b.route_id, b.Route_Name); });
 
     const sel = document.getElementById('route-select');
     sel.innerHTML = '<option value="">— เลือกสายรถ —</option>';
-    routeSet.forEach((name, id) => {
-        sel.innerHTML += `<option value="${id}">${name}</option>`;
-    });
+    routeSet.forEach((name, id) => { sel.innerHTML += `<option value="${id}">${name}</option>`; });
 
-    // ถ้ามีสายเดียว เลือกให้เลย
     if (routeSet.size === 1) {
-        const onlyRouteId = routeSet.keys().next().value;
-        sel.value = onlyRouteId;
-        filterBusesByRoute(onlyRouteId);
+        const onlyId = routeSet.keys().next().value;
+        sel.value = onlyId;
+        filterBusesByRoute(onlyId);
     }
 }
 
 function filterBusesByRoute(routeId) {
     const sel  = document.getElementById('bus-select');
     const list = allBuses.filter(b => String(b.route_id) === String(routeId));
-
     sel.innerHTML = '<option value="">— เลือกทะเบียนรถ —</option>';
     list.forEach(b => {
         sel.innerHTML += `<option value="${b.bus_id}">${b.plate_no}${b.bus_no ? ' (' + b.bus_no + ')' : ''}</option>`;
     });
-
-    if (list.length === 1) {
-        sel.value = list[0].bus_id;
-    }
+    if (list.length === 1) sel.value = list[0].bus_id;
 }
 
-// ── QR Scan ──────────────────────────────────────────────────────────────────
+// ── QR Scanner (html5-qrcode) ─────────────────────────────────────────────────
 function adjustCount(delta) {
-    const input = document.getElementById('passenger_count');
-    input.value = Math.max(0, (parseInt(input.value) || 0) + delta);
+    const el = document.getElementById('passenger_count');
+    el.value = Math.max(0, (parseInt(el.value) || 0) + delta);
 }
 
 function showStatus(type, icon, msg, sub = '') {
-    const box    = document.getElementById('status-box');
+    const box = document.getElementById('status-box');
     const colors = {
         success: 'bg-green-50 border border-green-200 text-green-800',
         error:   'bg-red-50 border border-red-200 text-red-800',
@@ -342,12 +288,21 @@ function resetBtn() {
     </svg> สแกน QR Code`;
 }
 
+async function closeScanner() {
+    document.getElementById('qr-modal').classList.add('hidden');
+    if (html5QrCode) {
+        try { await html5QrCode.stop(); } catch(_) {}
+        html5QrCode = null;
+    }
+    resetBtn();
+}
+
 async function startScan() {
     const busId = document.getElementById('bus-select').value;
     const count = parseInt(document.getElementById('passenger_count').value);
 
-    if (!busId)        { showStatus('error', '⚠️', 'กรุณาเลือกทะเบียนรถ'); return; }
-    if (!count || count <= 0) { showStatus('error', '⚠️', 'กรุณากรอกจำนวนพนักงาน'); return; }
+    if (!busId)             { showStatus('error', '⚠️', 'กรุณาเลือกทะเบียนรถ'); return; }
+    if (!count || count < 1){ showStatus('error', '⚠️', 'กรุณากรอกจำนวนพนักงาน'); return; }
 
     const btn = document.getElementById('scan-btn');
     btn.disabled = true;
@@ -356,17 +311,22 @@ async function startScan() {
             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
     </svg> กำลังเปิดกล้อง...`;
 
+    document.getElementById('qr-modal').classList.remove('hidden');
+    html5QrCode = new Html5Qrcode('qr-reader');
+
     try {
-        const result = await liff.scanCodeV2();
-        if (result?.value) {
-            sendData(result.value, busId, count);
-        } else {
-            showStatus('error', '❌', 'ไม่พบข้อมูล QR Code');
-            resetBtn();
-        }
+        await html5QrCode.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            async (token) => {
+                await closeScanner();
+                sendData(token, busId, count);
+            },
+            () => {} // ignore per-frame errors
+        );
     } catch(e) {
-        showStatus('error', '❌', 'ยกเลิกการสแกน', e.message);
-        resetBtn();
+        await closeScanner();
+        showStatus('error', '❌', 'ไม่สามารถเปิดกล้องได้', e.message || 'กรุณาอนุญาตการใช้กล้อง');
     }
 }
 
@@ -375,7 +335,7 @@ function sendData(token, busId, count) {
 
     fetch('/api/driver/checkin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             token,
             bus_id:          busId,
@@ -389,7 +349,6 @@ function sendData(token, busId, count) {
         if (data.status === 'success') {
             showStatus('success', '✅', 'บันทึกสำเร็จ!', data.message);
             document.getElementById('main-form').querySelector('.bg-white').classList.add('opacity-50', 'pointer-events-none');
-            setTimeout(() => liff.closeWindow(), 2500);
         } else {
             showStatus('error', '❌', 'เกิดข้อผิดพลาด', data.message);
             resetBtn();
