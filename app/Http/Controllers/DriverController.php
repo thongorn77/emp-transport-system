@@ -7,15 +7,14 @@ use App\Models\Bus;
 use App\Models\BusInOutLog;
 use App\Models\Driver;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 
 class DriverController extends Controller
 {
-    // ─── Helper: ดึง logs + monthly summary พร้อม save session ──────────────
+    // ─── Helper: ดึง logs + monthly summary ──────────────────────────────────
     private function buildPayload(Driver $driver): array
     {
-        session(['driver_line_id' => $driver->line_user_id]);
-
         // รถที่ driver ขับได้
         $buses = DB::table('emp_driver_buses as db')
             ->join('emp_buses as b', 'db.bus_id', '=', 'b.bus_id')
@@ -59,6 +58,13 @@ class DriverController extends Controller
         ];
     }
 
+    // ─── Helper: สร้าง auth cookie ───────────────────────────────────────────
+    private function makeAuthCookie(string $lineId)
+    {
+        // 525960 นาที = 1 ปี, httpOnly=true, sameSite=Lax
+        return cookie('driver_auth', $lineId, 525960, '/', null, false, true, false, 'Lax');
+    }
+
     // ─── 1. หน้า Register ────────────────────────────────────────────────────
     public function showRegisterForm()
     {
@@ -100,12 +106,14 @@ class DriverController extends Controller
         // ตรวจสอบว่ามีแล้วหรือยัง
         $existing = Driver::where('line_user_id', $lineId)->first();
         if ($existing) {
+            $cookie = $this->makeAuthCookie($lineId);
             return response()->json([
                 'status'   => $existing->is_approved ? 'approved' : 'pending',
                 'message'  => $existing->is_approved
                     ? 'ลงทะเบียนแล้วและได้รับการอนุมัติแล้ว'
                     : 'ลงทะเบียนแล้ว รอการอนุมัติจาก Admin',
-            ]);
+                'redirect' => route('driver.dashboard'),
+            ])->withCookie($cookie);
         }
 
         DB::transaction(function () use ($request, $lineId) {
@@ -125,15 +133,75 @@ class DriverController extends Controller
             DB::table('emp_driver_buses')->insert($rows);
         });
 
-        session(['driver_line_id' => $lineId]);
+        $cookie = $this->makeAuthCookie($lineId);
 
         return response()->json([
-            'status'  => 'registered',
-            'message' => 'ลงทะเบียนสำเร็จ รอ Admin อนุมัติ',
-        ]);
+            'status'   => 'registered',
+            'message'  => 'ลงทะเบียนสำเร็จ รอ Admin อนุมัติ',
+            'redirect' => route('driver.dashboard'),
+        ])->withCookie($cookie);
     }
 
-    // ─── 3. เช็คสถานะ driver จาก LINE ID (เหมือน checkStatus) ──────────────
+    // ─── 3. Set auth cookie สำหรับ driver ที่มีอยู่แล้ว ─────────────────────
+    public function auth(Request $request)
+    {
+        $request->validate(['line_user_id' => 'required|string']);
+
+        $lineId = $request->line_user_id;
+        $driver = Driver::where('line_user_id', $lineId)->first();
+
+        if (!$driver) {
+            return response()->json([
+                'status'  => 'new',
+                'message' => 'ยังไม่ได้ลงทะเบียน',
+            ], 404);
+        }
+
+        $cookie = $this->makeAuthCookie($lineId);
+
+        return response()->json([
+            'status'      => $driver->is_approved ? 'approved' : 'pending',
+            'driver_name' => $driver->driver_name,
+            'redirect'    => route('driver.dashboard'),
+        ])->withCookie($cookie);
+    }
+
+    // ─── 4. Dashboard ────────────────────────────────────────────────────────
+    public function dashboard(Request $request)
+    {
+        $driver = $request->attributes->get('driver');
+
+        $busCount = DB::table('emp_driver_buses')
+            ->where('line_user_id', $driver->line_user_id)
+            ->count();
+
+        $monthlyTotal = DB::table('Bus_In_Out_Log')
+            ->where('line_user_id', $driver->line_user_id)
+            ->whereMonth('log_date_time', now()->month)
+            ->whereYear('log_date_time', now()->year)
+            ->count();
+
+        $recentLogs = DB::table('Bus_In_Out_Log as log')
+            ->leftJoin('emp_buses as b', 'log.bus_id', '=', 'b.bus_id')
+            ->leftJoin('Bus_Route as r', 'log.route_id', '=', 'r.Route_ID')
+            ->select('log.log_date_time', 'log.factory_id', 'log.actual_bus_type as bus_type',
+                     'log.passenger_count', 'log.applied_price', 'log.shift',
+                     'b.plate_no', 'r.Route_Name')
+            ->where('log.line_user_id', $driver->line_user_id)
+            ->orderBy('log.log_date_time', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(fn($l) => [
+                ...(array)$l,
+                'log_date_time' => \Carbon\Carbon::parse($l->log_date_time)->format('d/m/Y H:i'),
+            ]);
+
+        return response()
+            ->view('driver.dashboard', compact('driver', 'busCount', 'recentLogs', 'monthlyTotal'))
+            ->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0']);
+    }
+
+    // ─── 5. เช็คสถานะ driver จาก LINE ID ────────────────────────────────────
     public function checkStatus(Request $request)
     {
         $lineId = $request->line_user_id;
@@ -145,8 +213,6 @@ class DriverController extends Controller
         if (!$driver) {
             return response()->json(['status' => 'new']);
         }
-        // บันทึก session ให้ทุก driver (ทั้ง pending และ approved)
-        session(['driver_line_id' => $lineId]);
 
         if (!$driver->is_approved) {
             return response()->json(['status' => 'pending', 'driver_name' => $driver->driver_name]);
@@ -155,11 +221,13 @@ class DriverController extends Controller
         return response()->json(['status' => 'approved', 'driver_name' => $driver->driver_name]);
     }
 
-    // ─── 4. หน้า Check-in ───────────────────────────────────────────────────
-    public function index()
+    // ─── 6. หน้า Check-in ───────────────────────────────────────────────────
+    public function index(Request $request)
     {
+        $driver = $request->attributes->get('driver');
+
         return response()
-            ->view('driver.checkin')
+            ->view('driver.checkin', compact('driver'))
             ->withHeaders([
                 'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
                 'Pragma'        => 'no-cache',
@@ -167,10 +235,13 @@ class DriverController extends Controller
             ]);
     }
 
-    // ─── 5. ดึงรถที่ driver คนนี้ขับได้ (สำหรับ check-in dropdown) ──────────
+    // ─── 7. ดึงรถที่ driver คนนี้ขับได้ (สำหรับ check-in dropdown) ──────────
     public function myBuses(Request $request)
     {
-        $lineId = $request->line_user_id;
+        // อ่านจาก middleware ก่อน ถ้าไม่มีค่อย fallback ไป POST body
+        $driver = $request->attributes->get('driver');
+        $lineId = $driver ? $driver->line_user_id : $request->line_user_id;
+
         if (!$lineId) {
             return response()->json(['success' => false, 'message' => 'ไม่พบ LINE ID']);
         }
@@ -193,7 +264,7 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'buses' => $buses]);
     }
 
-    // ─── 6. บันทึก Check-in (scan QR) ───────────────────────────────────────
+    // ─── 8. บันทึก Check-in (scan QR) ───────────────────────────────────────
     public function store(Request $request)
     {
         // ตรวจ QR Token
@@ -274,7 +345,28 @@ class DriverController extends Controller
         }
     }
 
-    // ─── 7. Profile: เช็ค PHP session ───────────────────────────────────────
+    // ─── 9. หน้า Profile (server-rendered) ──────────────────────────────────
+    public function profile(Request $request)
+    {
+        $driver = $request->attributes->get('driver');
+        $payload = $this->buildPayload($driver);
+
+        return response()
+            ->view('driver.profile', [
+                'driver'  => $driver,
+                'buses'   => $payload['buses'],
+                'logs'    => $payload['logs'],
+                'monthly' => $payload['monthly'],
+            ])
+            ->withHeaders([
+                'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma'        => 'no-cache',
+                'Expires'       => 'Thu, 01 Jan 1970 00:00:00 GMT',
+            ]);
+    }
+
+    // ─── Legacy endpoints (backward compat) ─────────────────────────────────
+
     public function profileSession()
     {
         $lineId = session('driver_line_id');
@@ -289,7 +381,6 @@ class DriverController extends Controller
         return response()->json($this->buildPayload($driver));
     }
 
-    // ─── 8. Profile: login ด้วย LINE ID ─────────────────────────────────────
     public function lineLogin(Request $request)
     {
         $lineId = $request->line_user_id;
@@ -301,14 +392,12 @@ class DriverController extends Controller
         return response()->json($this->buildPayload($driver));
     }
 
-    // ─── 9. Profile: clear session ──────────────────────────────────────────
     public function profileSessionClear()
     {
         session()->forget('driver_line_id');
         return response()->json(['success' => true]);
     }
 
-    // ─── 10. เช็ค session แบบเบา (ไม่โหลด logs) ─────────────────────────────
     public function sessionCheck()
     {
         $lineId = session('driver_line_id');

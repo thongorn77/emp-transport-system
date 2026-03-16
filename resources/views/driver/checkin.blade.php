@@ -1,31 +1,28 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>บันทึกเที่ยววิ่ง</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Sarabun', sans-serif; }
-        .bus-option input { display: none; }
-        .bus-option input:checked + .bus-card {
-            border-color: #16a34a; background-color: #f0fdf4; color: #15803d;
-        }
-        .bus-card { transition: all 0.15s; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinner { animation: spin 0.8s linear infinite; }
-        .select-styled {
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2316a34a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-            background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
-        }
-        #qr-reader video { width: 100% !important; }
-        #qr-reader { width: 100% !important; }
-    </style>
-</head>
-<body class="bg-gray-50 min-h-screen">
+@extends('driver.layout')
+
+@section('title', 'บันทึกเที่ยววิ่ง')
+
+@push('head')
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+    .bus-option input { display: none; }
+    .bus-option input:checked + .bus-card {
+        border-color: #16a34a; background-color: #f0fdf4; color: #15803d;
+    }
+    .bus-card { transition: all 0.15s; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin 0.8s linear infinite; }
+    .select-styled {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2316a34a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+    }
+    #qr-reader video { width: 100% !important; }
+    #qr-reader { width: 100% !important; }
+</style>
+@endpush
+
+@section('content')
 
 {{-- QR Scanner Modal --}}
 <div id="qr-modal" class="hidden fixed inset-0 bg-black z-50 flex flex-col">
@@ -39,28 +36,19 @@
     <p class="text-gray-400 text-sm text-center pb-6">จ่อ QR Code ให้อยู่ในกรอบ</p>
 </div>
 
-{{-- Loading --}}
-<div id="loading" class="flex flex-col items-center justify-center min-h-screen gap-3">
-    <svg class="w-10 h-10 text-green-500 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-    </svg>
-    <p class="text-gray-500 text-sm" id="loading-msg">กำลังตรวจสอบ...</p>
+@if(!$driver->is_approved)
+
+{{-- Pending: not approved yet --}}
+<div class="flex flex-col items-center justify-center min-h-64 text-center px-6 py-16">
+    <div class="text-5xl mb-4">⏳</div>
+    <p class="font-bold text-gray-800 text-lg">รอการอนุมัติจาก Admin</p>
+    <p class="text-sm text-gray-500 mt-2">สวัสดี {{ $driver->driver_name }}<br>กรุณารอสักครู่</p>
 </div>
 
-{{-- Error --}}
-<div id="screen-error" class="hidden flex flex-col items-center justify-center min-h-screen px-6 text-center">
-    <div class="text-5xl mb-4">⚠️</div>
-    <p class="font-bold text-gray-800 text-lg mb-2" id="error-title">เกิดข้อผิดพลาด</p>
-    <p class="text-gray-500 text-sm mb-6" id="error-msg"></p>
-    <a href="/register-driver" style="background:#16a34a; color:#fff;"
-        class="px-6 py-3 rounded-xl font-bold text-sm">
-        ไปลงทะเบียน →
-    </a>
-</div>
+@else
 
 {{-- Main Form --}}
-<div id="main-form" class="hidden max-w-sm mx-auto px-4 py-8">
+<div id="main-form" class="max-w-sm mx-auto px-4 py-8">
 
     <div class="text-center mb-6">
         <div class="inline-flex items-center justify-center w-14 h-14 rounded-full mb-3" style="background:#16a34a;">
@@ -70,7 +58,7 @@
             </svg>
         </div>
         <h1 class="text-2xl font-extrabold text-gray-900">บันทึกเที่ยววิ่ง</h1>
-        <p class="text-sm text-gray-400 mt-1" id="driver-greeting">กำลังโหลด...</p>
+        <p class="text-sm text-gray-400 mt-1">สวัสดี {{ $driver->driver_name }}</p>
     </div>
 
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
@@ -149,91 +137,43 @@
         <p id="status-sub" class="text-sm mt-1 opacity-70"></p>
     </div>
 
-    <div class="mt-6 text-center">
-        <a href="/driver/profile" class="text-sm text-green-600 font-semibold hover:underline">
-            ดูประวัติของฉัน →
-        </a>
-    </div>
-
 </div>
 
+@endif
+@endsection
+
+@push('scripts')
 <script>
-let lineUserId = null;
-let allBuses   = [];
+const lineUserId = '{{ $driver->line_user_id }}';
+let allBuses = [];
 let html5QrCode = null;
 
-function show(id) {
-    ['loading','screen-error','main-form']
-        .forEach(s => document.getElementById(s).classList.add('hidden'));
-    document.getElementById(id).classList.remove('hidden');
-}
+// โหลดรถทันทีเมื่อหน้าเปิด
+document.addEventListener('DOMContentLoaded', async () => {
+    @if($driver->is_approved)
+    await loadBuses();
+    @endif
+});
 
-function showError(title, msg, showRegisterBtn = true) {
-    document.getElementById('error-title').textContent = title;
-    document.getElementById('error-msg').textContent   = msg;
-    document.querySelector('#screen-error a').style.display = showRegisterBtn ? '' : 'none';
-    show('screen-error');
-}
-
-// ── โหลดรถ ──────────────────────────────────────────────────────────────────
-async function loadBuses(driverId, driverName) {
-    document.getElementById('driver-greeting').textContent = 'สวัสดี ' + driverName;
-    document.getElementById('loading-msg').textContent = 'กำลังโหลดข้อมูลรถ...';
+async function loadBuses() {
     try {
         const res  = await fetch('/driver/my-buses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ line_user_id: driverId })
+            body: JSON.stringify({ line_user_id: lineUserId })
         });
         const data = await res.json();
-        if (!data.success) { showError('ไม่พบข้อมูลรถ', data.message, false); return; }
+        if (!data.success) {
+            document.getElementById('status-box') && showStatus('error', '⚠️', 'ไม่พบข้อมูลรถ', data.message);
+            return;
+        }
         allBuses = data.buses;
         buildRouteDropdown();
-        show('main-form');
     } catch(e) {
-        showError('เชื่อมต่อไม่ได้', e.message, false);
+        showStatus('error', '❌', 'เชื่อมต่อไม่ได้', 'กรุณาลองใหม่');
     }
 }
 
-// ── Auth: localStorage เท่านั้น (ไม่ใช้ LIFF) ───────────────────────────────
-async function init() {
-    const cachedId   = localStorage.getItem('driver_line_id');
-    const cachedName = localStorage.getItem('driver_display_name');
-
-    if (!cachedId) {
-        showError('กรุณาลงทะเบียนก่อน', 'กรุณากดเมนู "ลงทะเบียน" ก่อนใช้งาน');
-        return;
-    }
-
-    document.getElementById('loading-msg').textContent = 'กำลังตรวจสอบสถานะ...';
-    try {
-        const res  = await fetch('/driver/check-status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ line_user_id: cachedId })
-        });
-        const data = await res.json();
-
-        if (data.status === 'new') {
-            localStorage.removeItem('driver_line_id');
-            localStorage.removeItem('driver_display_name');
-            showError('ไม่พบข้อมูล', 'กรุณาลงทะเบียนก่อนใช้งาน');
-            return;
-        }
-        if (data.status === 'pending') {
-            showError('รอการอนุมัติ', 'Admin กำลังตรวจสอบข้อมูลของคุณ กรุณารอสักครู่', false);
-            return;
-        }
-
-        lineUserId = cachedId;
-        await loadBuses(lineUserId, cachedName || data.driver_name);
-
-    } catch(e) {
-        showError('เชื่อมต่อไม่ได้', 'กรุณาลองใหม่อีกครั้ง', false);
-    }
-}
-
-// ── Dropdown ─────────────────────────────────────────────────────────────────
 function buildRouteDropdown() {
     const routeSet = new Map();
     allBuses.forEach(b => { if (!routeSet.has(b.route_id)) routeSet.set(b.route_id, b.Route_Name); });
@@ -259,7 +199,6 @@ function filterBusesByRoute(routeId) {
     if (list.length === 1) sel.value = list[0].bus_id;
 }
 
-// ── QR Scanner (html5-qrcode) ─────────────────────────────────────────────────
 function adjustCount(delta) {
     const el = document.getElementById('passenger_count');
     el.value = Math.max(0, (parseInt(el.value) || 0) + delta);
@@ -267,6 +206,7 @@ function adjustCount(delta) {
 
 function showStatus(type, icon, msg, sub = '') {
     const box = document.getElementById('status-box');
+    if (!box) return;
     const colors = {
         success: 'bg-green-50 border border-green-200 text-green-800',
         error:   'bg-red-50 border border-red-200 text-red-800',
@@ -322,7 +262,7 @@ async function startScan() {
                 await closeScanner();
                 sendData(token, busId, count);
             },
-            () => {} // ignore per-frame errors
+            () => {}
         );
     } catch(e) {
         await closeScanner();
@@ -359,8 +299,5 @@ function sendData(token, busId, count) {
         resetBtn();
     });
 }
-
-init();
 </script>
-</body>
-</html>
+@endpush

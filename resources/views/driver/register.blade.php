@@ -31,43 +31,6 @@
     <p id="loading-msg" class="text-green-700 text-sm font-medium">กำลังตรวจสอบ...</p>
 </div>
 
-{{-- Pending Screen --}}
-<div id="screen-pending" class="hidden flex flex-col items-center justify-center min-h-screen text-center px-6">
-    <div class="text-6xl mb-4">⏳</div>
-    <h2 class="font-extrabold text-xl text-gray-800 mb-1">รอการอนุมัติ</h2>
-    <p id="pending-name" class="text-gray-500 mb-2"></p>
-    <p class="text-sm text-gray-400 mb-8">Admin กำลังตรวจสอบข้อมูลของคุณ กรุณารอสักครู่</p>
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 w-full max-w-xs space-y-3">
-        <p class="text-xs font-bold text-gray-400 uppercase tracking-wide">เมนู</p>
-        <a href="/driver/profile"
-           class="flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
-            <span class="text-xl">📋</span>
-            <span class="font-semibold text-gray-700">ดูประวัติของฉัน</span>
-        </a>
-    </div>
-</div>
-
-{{-- Approved Screen --}}
-<div id="screen-approved" class="hidden flex flex-col items-center justify-center min-h-screen text-center px-6">
-    <div class="text-6xl mb-4">✅</div>
-    <h2 class="font-extrabold text-xl text-gray-800 mb-1">ลงทะเบียนแล้ว</h2>
-    <p id="approved-name" class="text-gray-500 mb-8"></p>
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 w-full max-w-xs space-y-3">
-        <p class="text-xs font-bold text-gray-400 uppercase tracking-wide">เมนู</p>
-        <a href="/driver/checkin"
-           class="flex items-center gap-3 p-3 rounded-xl text-white font-bold"
-           style="background:#16a34a;">
-            <span class="text-xl">🚌</span>
-            <span>บันทึกเที่ยววิ่ง</span>
-        </a>
-        <a href="/driver/profile"
-           class="flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
-            <span class="text-xl">📋</span>
-            <span class="font-semibold text-gray-700">ดูประวัติของฉัน</span>
-        </a>
-    </div>
-</div>
-
 {{-- Error Screen --}}
 <div id="screen-error" class="hidden flex flex-col items-center justify-center min-h-screen text-center px-6">
     <div class="text-5xl mb-4">⚠️</div>
@@ -126,50 +89,27 @@
 
 <script>
 const LIFF_ID = "{{ config('services.line.liff_register_id') }}";
+const DASHBOARD_URL = "{{ route('driver.dashboard') }}";
 
 function show(id) {
-    ['loading','screen-pending','screen-approved','screen-error','form-area']
+    ['loading','screen-error','form-area']
         .forEach(s => document.getElementById(s).classList.add('hidden'));
     document.getElementById(id).classList.remove('hidden');
 }
 
-function showStatus(data) {
-    const name = data.driver_name || data.display_name || '';
-    if (data.is_approved || data.status === 'approved') {
-        document.getElementById('approved-name').textContent = 'สวัสดี ' + name;
-        show('screen-approved');
-    } else {
-        document.getElementById('pending-name').textContent = 'สวัสดี ' + name;
-        show('screen-pending');
-    }
-}
-
 async function init() {
-    // ── ชั้น 1: localStorage (คนที่เคยใช้แล้ว ข้าม LIFF) ──────
-    const cachedId = localStorage.getItem('driver_line_id');
-    if (cachedId) {
-        try {
-            const res  = await fetch('/driver/check-status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ line_user_id: cachedId })
-            });
-            const data = await res.json();
-            if (data.status === 'approved' || data.status === 'pending') {
-                showStatus({
-                    driver_name: data.driver_name,
-                    display_name: localStorage.getItem('driver_display_name') || '',
-                    is_approved: data.status === 'approved',
-                });
-                return;
-            }
-            // ถ้า 'new' แปลว่า cache เก่าแล้ว ลบทิ้งแล้วไป LIFF
-            localStorage.removeItem('driver_line_id');
-            localStorage.removeItem('driver_display_name');
-        } catch(_) {}
-    }
+    // ── ชั้น 1: เช็ค cookie ผ่าน session-check ─────────────────────────────
+    // ถ้า cookie ยังใช้ได้ → redirect ไป dashboard ทันที (ข้าม LIFF)
+    try {
+        const res  = await fetch('/driver/session-check');
+        const data = await res.json();
+        if (data.success) {
+            window.location.href = DASHBOARD_URL;
+            return;
+        }
+    } catch(_) {}
 
-    // ── ชั้น 2: LIFF (ใหม่ หรือ cache ถูกลบ) ──────────────────
+    // ── ชั้น 2: LIFF ────────────────────────────────────────────────────────
     document.getElementById('loading-msg').textContent = 'กำลังเชื่อมต่อ LINE...';
     try {
         await liff.init({ liffId: LIFF_ID });
@@ -193,10 +133,6 @@ async function init() {
         return;
     }
 
-    // บันทึก cache ทันที
-    localStorage.setItem('driver_line_id',      profile.userId);
-    localStorage.setItem('driver_display_name', profile.displayName);
-
     document.getElementById('line_user_id').value      = profile.userId;
     document.getElementById('line_display_name').value = profile.displayName;
     document.getElementById('line-name').textContent   = profile.displayName;
@@ -206,7 +142,7 @@ async function init() {
         av.classList.remove('hidden');
     }
 
-    // เช็คสถานะ
+    // เช็คสถานะ driver
     document.getElementById('loading-msg').textContent = 'กำลังตรวจสอบข้อมูล...';
     try {
         const res  = await fetch('/driver/check-status', {
@@ -217,8 +153,18 @@ async function init() {
         const data = await res.json();
 
         if (data.status === 'approved' || data.status === 'pending') {
-            showStatus({ driver_name: data.driver_name, is_approved: data.status === 'approved' });
+            // driver มีอยู่แล้ว → set cookie แล้ว redirect
+            show('loading');
+            document.getElementById('loading-msg').textContent = 'กำลังเข้าสู่ระบบ...';
+            const authRes  = await fetch('/driver/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ line_user_id: profile.userId })
+            });
+            const authData = await authRes.json();
+            window.location.href = authData.redirect || DASHBOARD_URL;
         } else {
+            // ใหม่ → แสดงฟอร์มลงทะเบียน
             show('form-area');
         }
     } catch(e) {
@@ -247,7 +193,7 @@ async function submitRegister() {
     btn.textContent = 'กำลังบันทึก...';
 
     try {
-        const res  = await fetch('/register-driver', {
+        const res  = await fetch('/driver/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -260,10 +206,9 @@ async function submitRegister() {
         });
         const data = await res.json();
 
-        if (data.status === 'registered' || data.status === 'pending') {
-            showStatus({ driver_name: driverName, is_approved: false });
-        } else if (data.status === 'approved') {
-            showStatus({ driver_name: driverName, is_approved: true });
+        if (data.redirect) {
+            // cookie ถูก set ใน response แล้ว → redirect
+            window.location.href = data.redirect;
         } else {
             errMsg.textContent = data.message || 'เกิดข้อผิดพลาด';
             errEl.classList.remove('hidden');

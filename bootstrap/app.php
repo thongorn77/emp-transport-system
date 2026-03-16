@@ -20,6 +20,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'driver/*',
             'register-driver',
         ]);
+
+        $middleware->alias([
+            'driver.auth' => \App\Http\Middleware\DriverAuth::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

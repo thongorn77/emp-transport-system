@@ -34,22 +34,28 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/logs',               [AdminController::class, 'logsList'])->name('admin.logs');
 });
 
-// Driver (ไม่ต้อง login — เปิดจาก LINE)
-Route::get('/register-driver',          [DriverController::class, 'showRegisterForm'])->name('driver.register');
-Route::post('/register-driver',         [DriverController::class, 'storeDriver'])->name('driver.storeDriver');
+// ─── Driver: สาธารณะ (ไม่ต้อง auth) ─────────────────────────────────────────
+Route::get('/driver/register',          [DriverController::class, 'showRegisterForm'])->name('driver.register');
+Route::post('/driver/register',         [DriverController::class, 'storeDriver'])->name('driver.storeDriver');
 Route::post('/driver/check-status',     [DriverController::class, 'checkStatus']);
-Route::get('/driver/checkin',           [DriverController::class, 'index'])->name('driver.checkin');
-Route::post('/driver/my-buses',         [DriverController::class, 'myBuses']);
-Route::get('/driver/profile', function () {
-    return response()->view('driver.profile')->withHeaders([
-        'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
-        'Pragma'        => 'no-cache',
-        'Expires'       => 'Thu, 01 Jan 1970 00:00:00 GMT',
-    ]);
-})->name('driver.profile');
-Route::get('/driver/session-check',     [DriverController::class, 'sessionCheck']);
-Route::get('/driver/profile-session',   [DriverController::class, 'profileSession']);
+Route::post('/driver/auth',             [DriverController::class, 'auth'])->name('driver.auth');
+
+// ─── Driver: Protected (ต้องมี cookie) ───────────────────────────────────────
+Route::middleware('driver.auth')->group(function () {
+    Route::get('/driver',               [DriverController::class, 'dashboard'])->name('driver.dashboard');
+    Route::get('/driver/checkin',       [DriverController::class, 'index'])->name('driver.checkin');
+    Route::get('/driver/profile',       [DriverController::class, 'profile'])->name('driver.profile');
+    Route::post('/driver/my-buses',     [DriverController::class, 'myBuses']);
+});
+
+// ─── Legacy redirects (สำหรับ link เก่าที่แชร์ใน LINE) ───────────────────────
+Route::get('/register-driver',          fn() => redirect()->route('driver.register'));
+Route::post('/register-driver',         [DriverController::class, 'storeDriver']);
+
+// ─── Legacy endpoints (backward compat) ──────────────────────────────────────
+Route::get('/driver/session-check',          [DriverController::class, 'sessionCheck']);
+Route::get('/driver/profile-session',        [DriverController::class, 'profileSession']);
 Route::post('/driver/profile-session/clear', [DriverController::class, 'profileSessionClear']);
-Route::post('/driver/line-login',       [DriverController::class, 'lineLogin']);
+Route::post('/driver/line-login',            [DriverController::class, 'lineLogin']);
 
 require __DIR__.'/auth.php';

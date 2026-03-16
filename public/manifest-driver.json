@@ -1,0 +1,22 @@
+{
+    "name": "ระบบคนขับรถ Kyokuyo",
+    "short_name": "คนขับรถ",
+    "description": "ระบบบันทึกเที่ยววิ่งสำหรับคนขับรถรับส่งพนักงาน",
+    "start_url": "/driver",
+    "scope": "/driver",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#f0fdf4",
+    "theme_color": "#16a34a",
+    "lang": "th",
+    "icons": [
+        {
+            "src": "/favicon.ico",
+            "sizes": "any",
+            "type": "image/x-icon",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": ["productivity", "utilities"],
+    "prefer_related_applications": false
+}
